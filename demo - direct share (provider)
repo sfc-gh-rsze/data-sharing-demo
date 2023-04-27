@@ -1,0 +1,310 @@
+
+-- Data Share (market place)
+-- Data share (as a provider and customer)
+-- Reader account
+-- Row level access & secured views
+-- Time travel & clone
+-- NOTE: You don't have to demo all 3 method of sharing
+
+
+
+-- Environment setup ---
+use role accountadmin;
+use warehouse load_wh;
+use database snowshow;
+
+DROP SHARE broker1_share;
+DROP SHARE broker2_share;
+DROP SHARE broker3_share;
+
+-- Create schema for demo --
+create or replace schema share_main;
+create or replace schema share_broker1;
+
+-- Create objects in schema "Main": --
+-- Main is a common area schema to share with multiple accounts --
+--   Customer table will be common share table for all brokers.
+
+use schema share_main;
+
+create table customers (
+customer_id  varchar(5),
+customer_name varchar(40),
+phone varchar(12),
+broker_id int
+);
+
+insert into customers values('001','Vin Diesel', '123-123-4567',1);
+insert into customers values('002','Michelle Rodriguez', '123-987-0987',2);
+insert into customers values('003','Jordan Brewster', '234-652-0965',2);
+insert into customers values('004','Tyrese Gibson', '256-937-9615',3);
+insert into customers values('005','Jason Statham', '718-283-8367',3);
+insert into customers values('006','Charlize Theron', '352-837-9876',2);
+insert into customers values('007','Dwayne Johnson', '333-847-1837',1);
+
+select * from share_main.customers;
+
+--
+-- Method 1: Put all objects in 1 schema to share (for broker 1)
+-- Schema:  share_broker1
+--
+
+use schema share_broker1;
+
+-- create customer table from main schema
+create table customers as select * from share_main.customers where broker_id=1;
+
+-- Create 2 more test tables.
+create table orders(
+transaction_id int,
+customer_id varchar(5),
+ticker varchar(10),
+action varchar(5),
+quantity int
+);
+
+create table settlement_status(
+transaction_id int,
+settled varchar(5)
+);
+
+-- Insert data for test tables.
+insert into orders values( 100000000,'001','appl','buy',10);
+insert into orders values( 100000001,'001','appl','buy',10);
+insert into orders values( 100000002,'001','appl','sell',10);
+insert into orders values( 100000003,'007','appl','buy',100);
+insert into orders values( 100000004,'007','appl','buy',50);
+insert into orders values( 100000005,'001','amzn','buy',20);
+insert into orders values( 100000006,'001','amzn','buy',10);
+insert into orders values( 100000007,'007','appl','buy',10);
+insert into orders values( 100000008,'007','tsla','buy',50);
+insert into orders values( 100000009,'007','tsla','sell',10);
+
+insert into settlement_status values( 100000000,'Y');
+insert into settlement_status values( 100000001,'Y');
+insert into settlement_status values( 100000002,'Y');
+insert into settlement_status values( 100000003,'Y');
+insert into settlement_status values( 100000004,'Y');
+insert into settlement_status values( 100000005,'N');
+insert into settlement_status values( 100000006,'N');
+insert into settlement_status values( 100000007,'N');
+insert into settlement_status values( 100000008,'N');
+insert into settlement_status values( 100000009,'N');
+
+select * from customers;
+select * from orders;
+select * from settlement_status;
+
+select customer_name, c.broker_id, o.customer_id, o.transaction_id, o.ticker, o.action, o.quantity, s.settled
+from orders o
+  left outer join customers c on o.customer_id = c.customer_id
+  left outer join settlement_status s on o.transaction_id = s.transaction_id
+;
+
+-- Create share for broker1
+CREATE or REPLACE share broker1_share;
+--
+-- Grant privileges for db & schema
+-- Add the 3 test tables to the share
+--
+GRANT USAGE ON DATABASE snowshow TO SHARE broker1_share;
+GRANT USAGE ON SCHEMA share_broker1 TO SHARE broker1_share;
+GRANT SELECT ON TABLE share_broker1.customers TO SHARE  broker1_share;
+GRANT SELECT ON TABLE share_broker1.orders TO SHARE  broker1_share;
+GRANT SELECT ON TABLE share_broker1.settlement_status TO SHARE  broker1_share;
+
+-- Add account to shares 
+-- Note use of SHARE_RESTRICTIONS clause to enable sharing between Business Critical and Enterprise account deployments
+use role accountadmin;
+ALTER SHARE broker1_share ADD ACCOUNTS = identifier('<customer account name you are sharing with>') SHARE_RESTRICTIONS=false;
+
+--
+-- Now you can go ahead and use the share at the customer account.
+-- (Use demo share - broker 1 (customer))
+--
+
+----------------------------------------------
+--
+-- Method 2: Use share schema (for broker 2)
+--   1. The orders and settlement tables has their own names for each broker.
+--   2. Customer table use row based access control to share rows belong to broker 2.
+--
+use role DBA_CITIBIKE;
+use schema share_main;
+
+select * from customers;
+-- Create the 2 test tables use pre-fix broker2_.
+create table broker2_orders(
+transaction_id int,
+customer_id varchar(5),
+ticker varchar(10),
+action varchar(5),
+quantity int
+);
+
+create table broker2_settlement_status(
+transaction_id int,
+settled varchar(5)
+);
+
+-- Insert test data.
+insert into broker2_orders values( 222001,'002','spot','buy',10);
+insert into broker2_orders values( 222002,'002','googl','buy',10);
+insert into broker2_orders values( 222003,'006','amzn','sell',10);
+insert into broker2_orders values( 222004,'006','googl','buy',100);
+insert into broker2_orders values( 222005,'003','spot','buy',50);
+insert into broker2_orders values( 222006,'003','twlo','buy',20);
+insert into broker2_orders values( 222007,'002','twlo','buy',10);
+
+insert into broker2_settlement_status values( 222001,'Y');
+insert into broker2_settlement_status values( 222002,'Y');
+insert into broker2_settlement_status values( 222003,'Y');
+insert into broker2_settlement_status values( 222004,'Y');
+insert into broker2_settlement_status values( 222005,'Y');
+insert into broker2_settlement_status values( 222006,'Y');
+insert into broker2_settlement_status values( 222007,'N');
+
+-- You don't need to create customer table since we have done it at the beginning.
+select * from customers;
+select * from broker2_orders;
+select * from broker2_settlement_status;
+
+select customer_name, c.broker_id, o.customer_id, o.transaction_id, o.ticker, o.action, o.quantity, s.settled
+from broker2_orders o
+  left outer join share_main.customers c on o.customer_id = c.customer_id
+  left outer join broker2_settlement_status s on o.transaction_id = s.transaction_id
+;
+
+-- 
+-- Create row access policy
+--
+use schema share_main;
+create or replace table broker_mapping as (select distinct broker_id from customers);
+alter table broker_mapping add column broker_account varchar(45);
+select * from broker_mapping order by 1;
+update broker_mapping set broker_account = 'TJB87603' where broker_id = 2;
+select * from broker_mapping order by 1;
+
+--create RLS Policy
+CREATE OR REPLACE ROW ACCESS POLICY broker_segmentation AS
+  (broker_id int) RETURNS BOOLEAN ->
+  '<your account name (as a provider)>' = current_account() 
+           or EXISTS(SELECT 1 FROM broker_mapping a
+              WHERE broker_account = current_account()
+                AND a.broker_id = broker_id
+                   ); 
+                   
+select current_account();
+--apply RLS to table
+ALTER TABLE customers ADD ROW ACCESS POLICY broker_segmentation on(broker_id);
+--ALTER TABLE customers DROP ROW ACCESS POLICY broker_segmentation;
+SELECT * from customers; --see all data
+
+--- Optional for CDC --
+alter table customers set change_tracking = true;
+insert into customers values('008','Aaron Judge', '236-908-9387',2);
+select * from customers where broker_id=2;
+------
+
+-- Create share for broker2
+CREATE or REPLACE share broker2_share;
+--
+-- Grant privileges for db & schema
+-- Add the 3 test tables to the share
+--
+GRANT USAGE ON DATABASE snowshow TO SHARE broker2_share;
+GRANT USAGE ON SCHEMA share_main TO SHARE broker2_share;
+GRANT SELECT ON TABLE share_main.customers TO SHARE  broker2_share;
+GRANT SELECT ON TABLE share_main.broker2_orders TO SHARE  broker2_share;
+GRANT SELECT ON TABLE share_main.broker2_settlement_status TO SHARE  broker2_share;
+
+-- Add account to shares 
+-- Note use of SHARE_RESTRICTIONS clause to enable sharing between Business Critical and Enterprise account deployments
+use role accountadmin;
+ALTER SHARE broker2_share ADD ACCOUNTS = identifier('<customer account name you are sharing with>') SHARE_RESTRICTIONS=false;
+
+SHOW SHARES like 'broker%';
+
+
+--
+-- Method 3: secure view with reader account
+--
+
+
+use role accountadmin;
+grant create account on account to role DBA_CITIBIKE;
+
+use role DBA_CITIBIKE;
+create managed account demo_rsze_reader_acct1
+    admin_name = useradmin , admin_password = '*****' ,
+    type = reader;
+    
+show managed accounts;
+
+
+-- Create the 2 test tables use pre-fix broker3_.
+create or replace table broker3_orders(
+transaction_id int,
+customer_id varchar(5),
+ticker varchar(10),
+action varchar(5),
+quantity int
+);
+
+create or replace table broker3_settlement_status(
+transaction_id int,
+settled varchar(5)
+);
+
+-- Insert test data.
+insert into broker3_orders values( 333001,'004','amt','buy',10);
+insert into broker3_orders values( 333002,'004','pypl','buy',10);
+insert into broker3_orders values( 333003,'005','vfc','sell',10);
+insert into broker3_orders values( 333004,'005','amt','buy',100);
+insert into broker3_orders values( 333005,'005','pypl','buy',50);
+
+
+insert into broker3_settlement_status values( 333001,'Y');
+insert into broker3_settlement_status values( 333002,'Y');
+insert into broker3_settlement_status values( 333003,'Y');
+insert into broker3_settlement_status values( 333004,'Y');
+insert into broker3_settlement_status values( 333005,'N');
+
+
+create or replace secure view broker3_view as
+    select customer_name, c.broker_id, o.customer_id, o.transaction_id, o.ticker, o.action, o.quantity, s.settled
+    from broker3_orders o
+      left outer join share_main.customers c on o.customer_id = c.customer_id
+      left outer join broker3_settlement_status s on o.transaction_id = s.transaction_id
+    where c.broker_id = 3
+    ;
+
+select * from broker3_view;
+
+show views like 'broker3_view';
+
+-- Create share for broker3
+CREATE or REPLACE share broker3_share;
+--
+-- Grant privileges for db & schema
+-- Add the 3 test tables to the share
+--
+GRANT USAGE ON DATABASE snowshow TO SHARE broker3_share;
+GRANT USAGE ON SCHEMA share_main TO SHARE broker3_share;
+
+GRANT SELECT ON view broker3_view TO SHARE  broker3_share;
+select * from broker_mapping;
+update broker_mapping set broker_account = 'PAB03139' where broker_id = 3;
+select * from broker_mapping;
+revoke references on share_main.customers from SHARE  broker3_share;
+revoke references on share_main.broker3_orders from SHARE  broker3_share;
+revoke references on share_main.broker3_settlement_status from SHARE  broker3_share;
+
+-- Add account to shares 
+-- Note use of SHARE_RESTRICTIONS clause to enable sharing between Business Critical and Enterprise account deployments
+use role accountadmin;
+ALTER SHARE broker3_share ADD ACCOUNTS = identifier('PAB03139') SHARE_RESTRICTIONS=false;
+
+SHOW SHARES like 'broker%';
+
+show views like 'broker3_view';

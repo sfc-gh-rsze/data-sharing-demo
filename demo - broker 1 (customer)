@@ -1,0 +1,39 @@
+use role accountadmin;
+show shares;
+desc share <provider org name>.<provider account name>.BROKER1_SHARE;
+set myusername = current_user();
+
+-- Create roles
+USE ROLE securityadmin;
+CREATE OR REPLACE ROLE broker1_role;
+GRANT ROLE broker1_role TO ROLE sysadmin;
+GRANT ROLE broker1_role TO USER identifier($myusername);
+
+-- Grant privileges to roles
+USE ROLE accountadmin;
+GRANT CREATE DATABASE ON ACCOUNT TO ROLE broker1_role;
+GRANT CREATE SHARE ON ACCOUNT TO ROLE broker1_role;
+GRANT IMPORT SHARE ON ACCOUNT TO ROLE broker1_role;
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE broker1_role;
+GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE broker1_role;
+drop warehouse broker1_wh;
+drop database broker1_shared_db ;
+-- Create virtual warehouse
+USE ROLE broker1_role;
+CREATE OR REPLACE WAREHOUSE broker1_wh warehouse_size=xsmall;
+USE WAREHOUSE broker1_wh;
+
+set broker1_share_identity = concat('<provider locator name>','.broker1_share');
+CREATE OR REPLACE DATABASE broker1_shared_db FROM SHARE identifier($broker1_share_identity);
+
+use database broker1_shared_db;
+use schema share_broker1;
+select * from customers;
+select * from orders;
+select * from settlement_status;
+
+select customer_name, c.broker_id, o.customer_id, o.transaction_id, o.ticker, o.action, o.quantity, s.settled
+from orders o
+  left outer join customers c on o.customer_id = c.customer_id
+  left outer join settlement_status s on o.transaction_id = s.transaction_id
+;

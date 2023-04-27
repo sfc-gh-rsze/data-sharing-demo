@@ -116,7 +116,7 @@ GRANT SELECT ON TABLE share_broker1.settlement_status TO SHARE  broker1_share;
 -- Add account to shares 
 -- Note use of SHARE_RESTRICTIONS clause to enable sharing between Business Critical and Enterprise account deployments
 use role accountadmin;
-ALTER SHARE broker1_share ADD ACCOUNTS = identifier('<customer account name you are sharing with>') SHARE_RESTRICTIONS=false;
+ALTER SHARE broker1_share ADD ACCOUNTS = identifier('<customer account locator name you are sharing with>') SHARE_RESTRICTIONS=false;
 
 --
 -- Now you can go ahead and use the share at the customer account.
@@ -221,7 +221,7 @@ GRANT SELECT ON TABLE share_main.broker2_settlement_status TO SHARE  broker2_sha
 -- Add account to shares 
 -- Note use of SHARE_RESTRICTIONS clause to enable sharing between Business Critical and Enterprise account deployments
 use role accountadmin;
-ALTER SHARE broker2_share ADD ACCOUNTS = identifier('<customer account name you are sharing with>') SHARE_RESTRICTIONS=false;
+ALTER SHARE broker2_share ADD ACCOUNTS = identifier('<customer account locator name you are sharing with>') SHARE_RESTRICTIONS=false;
 
 SHOW SHARES like 'broker%';
 

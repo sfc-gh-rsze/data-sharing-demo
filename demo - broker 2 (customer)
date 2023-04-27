@@ -1,0 +1,39 @@
+use role accountadmin;
+show shares;
+desc share <provider org name>.<provider account name>.BROKER2_SHARE;
+set myusername = current_user();
+
+-- Create roles
+USE ROLE securityadmin;
+CREATE OR REPLACE ROLE broker2_role;
+GRANT ROLE broker2_role TO ROLE sysadmin;
+GRANT ROLE broker2_role TO USER identifier($myusername);
+
+-- Grant privileges to roles
+use role accountadmin;
+GRANT CREATE DATABASE ON ACCOUNT TO ROLE broker2_role;
+GRANT CREATE SHARE ON ACCOUNT TO ROLE broker2_role;
+GRANT IMPORT SHARE ON ACCOUNT TO ROLE broker2_role;
+GRANT EXECUTE TASK ON ACCOUNT TO ROLE broker2_role;
+GRANT CREATE WAREHOUSE ON ACCOUNT TO ROLE broker2_role;
+
+
+-- Create virtual warehouse
+USE ROLE broker2_role;
+CREATE OR REPLACE WAREHOUSE broker2_wh warehouse_size=xsmall;
+USE WAREHOUSE broker2_wh;
+
+set broker2_share_identity = concat('<provider account locator name>','.broker2_share');
+CREATE OR REPLACE DATABASE broker2_shared_db FROM SHARE identifier($broker2_share_identity);
+
+use database broker2_shared_db;
+use schema share_main;
+select * from customers;
+select * from broker2_orders;
+select * from broker2_settlement_status;
+
+select customer_name, c.broker_id, o.customer_id, o.transaction_id, o.ticker, o.action, o.quantity, s.settled
+from broker2_orders o
+  left outer join customers c on o.customer_id = c.customer_id
+  left outer join broker2_settlement_status s on o.transaction_id = s.transaction_id
+;
